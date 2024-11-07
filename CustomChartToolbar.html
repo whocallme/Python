@@ -1,0 +1,59 @@
+## Custom Toolbar
+class CustomToolbar(NavigationToolbar):
+    def __init__(self, canvas, parent, x, y, x_index, y_index):
+        super().__init__(canvas, parent)
+        self.x = x
+        self.y = y
+        self.x_index = x_index
+        self.y_index = y_index
+        self.remove_toolitems(['Subplots'])
+        self.add_custom_button()
+
+    def remove_toolitems(self, toolitems):
+        """주어진 toolitems 리스트에 해당하는 버튼들을 Toolbar에서 제거"""
+        existing_items = [a for a in self.actions() if a.text() in toolitems]
+        for item in existing_items:
+            self.removeAction(item)
+
+    def add_custom_button(self):
+        """커스텀 버튼을 툴바에 추가 (이미지 포함)"""
+        project_dir = get_project_directory()
+        icon_path = os.path.join(project_dir, 'MyProject', 'Resources\custom_icon.png')
+        if not os.path.exists(icon_path):
+            print(f"<Error>icon File path error : {icon_path}")
+        
+        icon = QPixmap(icon_path).scaled(24, 24)  # QPixmap을 사용해 해상도를 조정
+        custom_action = QAction(QIcon(icon), 'Save RawData', self)  # QIcon을 생성하여 사용
+        custom_action.triggered.connect(self.custom_function)
+        self.addAction(custom_action)
+
+    def custom_function(self):
+        """커스텀 버튼이 눌렸을 때 실행되는 함수 - 차트 데이터 엑셀로 저장"""
+        print("커스텀 버튼이 눌렸습니다!")    # 테스트
+        
+		# save by excel
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(None, "Save Excel File", "", "Excel Files (*.xlsx);;All Files (*)", options=options)
+        if file_path:
+            print(f"엑셀경로 :{file_path} \n")
+            workbook = openpyxl.Workbook()
+            sheet = workbook.active
+            sheet.title = "RawData"
+
+            sheet.cell(row=1, column=1, value=label_name[self.x_index])
+            sheet.cell(row=1, column=2, value=label_name[self.y_index])
+
+            for i in range(len(self.x)):
+                sheet.cell(row=i + 2, column=1, value=self.x[i])
+                sheet.cell(row=i + 2, column=2, value=self.y[i])
+
+            workbook.save(file_path)
+            print(f"데이터가 {file_path}에 저장되었습니다.")
+			
+			
+			
+....
+
+
+	custom_toolbar = CustomToolbar(fig.canvas, fig_manager.window, x, y, x_index, y_index)
+    fig_manager.window.addToolBar(custom_toolbar)
