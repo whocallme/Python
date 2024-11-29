@@ -1,0 +1,75 @@
+data : x, y
+data type is json
+need to data setting before excute this function
+
+data setting
+def data setting(x_json, y_json):
+
+    # JSON data
+    xjson = json.loads(x_json)
+    yjson = json.loads(y_json)
+    
+    x_label = list(x_label)
+    y_label = list(y_label)
+    
+    # xData' padding
+    max_length_x = max(len(row) for row in xjson)
+    x = [row + [np.nan] * (max_length_x - len(row)) for row in xjson]
+    global xData 
+    xData = pd.DataFrame(x)
+
+    # yData' padding
+    max_length_y = max(len(row) for row in yjson)
+    y = [row + [np.nan] * (max_length_y - len(row)) for row in yjson]
+    global yData
+    yData = pd.DataFrame(y)
+
+
+def create_chart(result_path, x, y, x_label=None, y_label=None, file_type='png'):    
+    """
+    차트를 생성하고 이미지 파일로 저장합니다
+    다차원 배열에 사용
+    :param x: X축 데이터 리스트
+    :param y: Y축 데이터 리스트
+    :param file_type: 저장할 이미지 파일 유형 ('png', 'jpg', 'svg', 등)
+    """
+    # 색상 리스트 정의
+    colors = ['b', 'r', 'c', 'm', 'y', 'k']
+    plt.figure(figsize=(10, 6))
+    color_cnt = 0
+
+    # 데이터 구조 확인
+    if x.shape[0] == 1:  # b 형태: 하나의 행으로 구성된 데이터
+        plt.plot(x.iloc[0], y.iloc[0], marker='', linestyle='-', color='b')
+    else:  # A 형태: 다수의 행으로 구성된 데이터
+        for index in range(len(x)):
+            color_idx = colors[color_cnt % len(colors)]
+            non_na_count = x.iloc[index].notna().sum()  # 유효 데이터 개수 계산
+            if non_na_count <= 1:
+                plt.scatter(x.iloc[index].dropna(), y.iloc[index].dropna(), marker='*', color='g')
+            else:
+                plt.plot(x.iloc[index].dropna(), y.iloc[index].dropna(), marker='', linestyle='-', color=color_idx)
+            color_cnt += 1
+    
+    text = result_path
+    if x_label is None:
+        plt.xlabel(Xlabel[0])
+        text = text + Xlabel[0]
+        
+    if y_label is None:
+        plt.ylabel(Ylabel[0])
+        text = text + Ylabel[0]
+    
+    if x_label is not None:
+        plt.xlabel(x_label)
+        text = text + x_label
+        
+    if y_label is not None:
+        plt.ylabel(y_label)
+        text = text + y_label
+        
+    plt.grid(True)
+    
+    # 지정된 파일 유형으로 차트를 저장
+    plt.savefig(text + '.png', format=file_type)
+    plt.close()
