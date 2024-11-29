@@ -1,0 +1,16 @@
+def get_project_directory():
+    """
+    현재 스크립트의 위치를 기준으로 프로젝트의 루트 디렉터리 경로를 반환합니다.
+    Returns:
+        str: 프로젝트 루트 디렉터리 경로
+    """
+    # 현재 실행 중인 스크립트의 절대 경로
+    current_script_path = os.path.abspath(__file__)
+
+    # 스크립트가 있는 디렉터리 경로
+    current_dir = os.path.dirname(current_script_path)
+
+    # 프로젝트의 상위 폴더로 이동 (Scripts 폴더에서 한 단계 상위로)
+    project_dir = os.path.abspath(os.path.join(current_dir, '..'))
+    
+    return project_dir
