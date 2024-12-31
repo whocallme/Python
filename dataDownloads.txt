@@ -1,0 +1,57 @@
+from pathlib import Path
+import pandas as pd
+import tarfile
+import urllib.request
+
+def load_housing_data():
+    """
+    Downloads and extracts the housing dataset if not already present, and loads it into a Pandas DataFrame.
+    
+    Returns:
+        pd.DataFrame: The housing dataset as a DataFrame.
+    """
+    # Define paths
+    base_dir = Path("datasets")
+    tarball_path = base_dir / "housing.tgz"
+    extracted_dir = base_dir / "housing"
+    csv_path = extracted_dir / "housing.csv"
+    
+    # URL for the dataset
+    url = "http://example.com/housing.tgz"  # Replace with the actual URL
+    
+    # Ensure base directory exists
+    base_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Download the dataset if not already present
+    if not tarball_path.is_file():
+        try:
+            print(f"Downloading dataset from {url}...")
+            urllib.request.urlretrieve(url, tarball_path)
+            print("Download complete.")
+        except Exception as e:
+            raise RuntimeError(f"Failed to download the dataset: {e}")
+    
+    # Extract the dataset if not already extracted
+    if not extracted_dir.is_dir():
+        try:
+            print("Extracting dataset...")
+            with tarfile.open(tarball_path) as housing_tarball:
+                housing_tarball.extractall(path=base_dir)
+            print("Extraction complete.")
+        except Exception as e:
+            raise RuntimeError(f"Failed to extract the dataset: {e}")
+    
+    # Load the dataset into a DataFrame
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"The expected CSV file was not found: {csv_path}")
+    
+    try:
+        print("Loading dataset into DataFrame...")
+        housing_data = pd.read_csv(csv_path)
+        print("Dataset loaded successfully.")
+        return housing_data
+    except Exception as e:
+        raise RuntimeError(f"Failed to load the dataset into a DataFrame: {e}")
+
+# Example usage:
+# df = load_housing_data()
