@@ -1,0 +1,72 @@
+---------- C# ----------
+public class DataStructure
+{
+  public string TEST1 { get; set; }
+  public string TEST2 { get; set; }
+}
+
+
+C# --> python
+using pythonnet
+data type은 json using JsonConverter
+
+DataStructure reportData = ...;
+string report_data_json = JsonConvert.SerailizeObject(reportData);
+
+
+---------- Python ----------
+def create_reports(report_data_json, file_path, data_file_path, crack_data, original_data):
+    """
+    Create report based on the input data.
+
+    Args:
+        report_data_json (string): JSON containing report data.
+
+    Returns:
+        None
+    """    
+    output_image_path  = get_output_image_path()
+    excel_file_path = get_output_report_path()  # Excel 파일 경로
+    
+    current_time = datetime.now()
+
+    # 두 가지 형태로 변환
+    time_format1 = current_time.strftime("%Y%m%d%H%M")      # 202401011212 형식
+    time_format2 = current_time.strftime("%Y-%m-%d %H:%M")  # 2024-01-01 12:12 형식
+    
+    try:
+        wb = load_workbook(excel_file_path)
+        ws = wb.active
+
+        # 차트 이미지 삽입
+        if os.path.exists(output_image_path):
+            img = Image(output_image_path)
+            # 그림 크기 조정
+            img.width = img.width 
+            img.height = img.height 
+            ws.add_image(img, "C134")
+
+        report_data = json.loads(report_data_json)
+
+        # Excel 셀에 데이터 삽입
+        # Project Information
+        ws["J7"] = report_data['TEST1']
+        ws["J8"] = report_data['TEST2']
+
+        # 파일 네임 설정
+        current_time = datetime.now().strftime("%Y%m%d%H%M") # 시분초
+        
+        # 결과 Excel 저장
+        result_string = f"KIC_Report_{report_data['NameOfTheProject']}_{time_format1}"
+        result_path = os.path.join(file_path, result_string)
+    
+        wb.save(result_path + '.xlsx')
+        print(f"Image inserted into existing Excel file and saved at {result_path} successfully.")
+
+        # crack data 파일 생성
+        result_string_crack = f"KIC_CrackData_{report_data['NameOfTheProject']}_{time_format1}.csv"
+        result_path_crack = os.path.join(file_path, result_string_crack)
+        create_crack_mouth_opening_compliance(original_data, crack_data, result_path_crack)
+        
+    except PermissionError as e:
+        print(f"Permission denied: {e}")
