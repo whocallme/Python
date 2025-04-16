@@ -1,0 +1,474 @@
+기능(25/4/16)
+- only scatter chart
+- 다양한 이벤트 제공
+  - 차트 우클릭 시 팝업 창
+  - 팝업창의 버튼은 이벤트 콜백
+  - 차트 배경 우클릭 시 전체 취소
+  - 차트 우클릭 시 하이라이트
+
+# 버튼 타입을 정의하는 Enum 클래스. example
+button_type_map = {
+    "A": 1,
+    "B": 2,
+    "C": 3
+    }
+
+# C#에서 받을 콜백 함수 저장 변수
+callback_function_material = None
+
+# 팝업 창을 관리하는 변수
+current_popup = None  # 현재 떠 있는 팝업 창 참조
+
+# C#에서 Python 콜백 함수 등록
+def set_callback_material(callback):
+    global callback_function_material
+    callback_function_material = callback
+
+dragging = False
+xlim, ylim = None, None
+prev_mouse_position = None
+
+class ChartMode(Enum):
+    DEFAULT = 1  # material_name으로 색상 구분
+    FR = 2       # kqValid로 색상 구분
+
+class CustomToolbar(NavigationToolbar):
+    """
+    사용자 정의 Toolbar 클래스
+    """
+    def __init__(self, canvas, parent, df_data):
+        super().__init__(canvas, parent)
+        self.remove_toolitems(['Subplots'])
+        self.df_data = df_data  # 전체 데이터 저장
+        self.add_custom_button()
+
+    def remove_toolitems(self, toolitems):
+        """주어진 toolitems 리스트에 해당하는 버튼들을 Toolbar에서 제거"""
+        existing_items = [a for a in self.actions() if a.text() in toolitems]
+        for item in existing_items:
+            self.removeAction(item)
+
+    def add_custom_button(self):
+        """커스텀 버튼을 툴바에 추가"""
+        project_dir = get_project_directory()
+        icon_path = os.path.join(project_dir, 'PIMP_AL', 'Resources', 'Icon', 'save_by_excel.png')
+
+        if not os.path.exists(icon_path):
+            print(f"아이콘 파일을 찾을 수 없습니다: {icon_path}")
+
+        icon = QPixmap(icon_path).scaled(24, 24)
+        custom_action = QAction(QIcon(icon), 'Save Data to Excel', self)
+        custom_action.triggered.connect(self.save_to_excel)
+        self.addAction(custom_action)
+
+    def save_to_excel(self):
+        """전체 데이터를 엑셀 파일로 저장"""
+        if self.df_data.empty:
+            print("데이터가 비어 있습니다.")
+            return
+
+        options = QFileDialog.Options()
+        file_path, _ = QFileDialog.getSaveFileName(
+            None, "Save Excel File", "", "Excel Files (*.xlsx);;All Files (*)", options=options
+        )
+
+        if file_path:
+            print(f"엑셀 경로: {file_path}")
+
+            with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                self.df_data.to_excel(writer, sheet_name="RawData", index=False)
+                
+
+def generate_color_palette(num_colors):
+    cmap = plt.get_cmap("tab10")
+    colors = [cmap(i / num_colors) for i in range(num_colors)]
+    return colors
+
+def show_chart(json_data, x_label, y_label, mode: MaterialChartMode = ChartMode.DEFAULT):
+    selected_points = set()
+    
+    # C#에서 int나 str로 넘기는 걸 모두 처리
+    if isinstance(mode, int):
+        mode = MaterialChartMode(mode)
+    elif isinstance(mode, str):
+        mode = MaterialChartMode[mode]
+    elif not isinstance(mode, MaterialChartMode):
+        mode = MaterialChartMode.DEFAULT
+
+    # 폰트 설정
+    project_dir = get_project_directory()
+    fonts_dir = os.path.join(project_dir, 'PIMP_AL', 'Resources', 'Fonts')
+    font_path = os.path.join(fonts_dir, "malgun.ttf")
+    font_prop = fm.FontProperties(fname=font_path) if os.path.exists(font_path) else None
+
+    if font_prop:
+        plt.rc('font', family=font_prop.get_name())
+        plt.rcParams['axes.unicode_minus'] = False
+    else:
+        print(f"폰트 파일을 찾을 수 없습니다: {font_path}")
+
+    # JSON → DataFrame
+    data = pd.DataFrame(json.loads(json_data))
+
+    # 차트 및 축 생성
+    fig, ax = plt.subplots(figsize=(8, 6))
+    scatter_objects = {}
+
+    fig.canvas.manager.set_window_title("Material Scatter Plot")
+
+    if mode == MaterialChartMode.DEFAULT:
+        unique_materials = data["material_name"].unique()
+        material_colors = {
+            material: color for material, color in zip(unique_materials, generate_color_palette(len(unique_materials)))
+        }
+
+        for material, color in material_colors.items():
+            subset = data.loc[data["material_name"] == material, ["specimen_id", "material_name", "x", "y"]]
+            if not subset.empty:
+                sc = ax.scatter(
+                    subset["x"], subset["y"], label=material, c=[color]*len(subset), s=50, alpha=0.8, edgecolors='none'
+                )
+                scatter_objects[material] = (sc, subset)
+
+    elif mode == MaterialChartMode.FR:
+        kq_color_map = {True: 'green', False: 'red'}
+        kq_label_map = {True: 'YES', False: 'NO'}
+
+        for kq_val in data["kqValid"].unique():
+            subset = data.loc[data["kqValid"] == kq_val, ["specimen_id", "material_name", "x", "y"]]
+            if not subset.empty:
+                label = kq_label_map.get(kq_val, str(kq_val))
+                color = kq_color_map.get(kq_val, 'gray')
+                sc = ax.scatter(
+                    subset["x"], subset["y"], label=label, c=color, s=50, alpha=0.8, edgecolors='none'
+                )
+                scatter_objects[label] = (sc, subset)
+
+    ax.set_facecolor('#FAFAFA')  # 배경색 추가하여 대비를 줄여 렌더링 부담 감소
+    ax.spines['top'].set_visible(False)  # 불필요한 테두리 제거
+    ax.spines['right'].set_visible(False)
+    
+    # 범례 업데이트
+    if scatter_objects:
+        ax.legend()  # 존재하는 데이터만 범례에 표시
+    
+    plt.xlabel(x_label, fontproperties=font_prop)
+    plt.ylabel(y_label, fontproperties=font_prop)
+    plt.title(f"{x_label}-{y_label} Scatter Plot")
+    plt.legend()
+    plt.grid(True)
+
+            
+    def on_close(event):
+        """차트를 닫을 때, 모든 팝업 창도 닫기"""
+        global open_popups
+
+        for popup in open_popups:
+            popup.close()  # 팝업 닫기
+        open_popups.clear()  # 리스트 초기화
+
+    # PyQt5 팝업창
+    class PopupWindow(QWidget):
+        def __init__(self,  material_name, specimen_id, x_val, y_val):
+            super().__init__()
+            self.material_name = material_name
+            self.specimen_id = specimen_id
+            self.x_val = x_val
+            self.y_val = y_val
+            
+            # 팝업 창이 열릴 때 리스트에 추가
+            open_popups.append(self)
+            
+            self.setWindowTitle(f"{self.specimen_id}")
+            self.resize(400, 250)  
+            
+            self.setWindowFlags(self.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
+            
+            # 프로젝트 폰트 경로 설정
+            project_dir = get_project_directory()
+            fonts_dir = os.path.join(project_dir, 'PIMP_AL', 'Resources', 'Fonts')
+            font_path = os.path.join(fonts_dir, "malgun.ttf")
+
+            # 폰트 로드 및 적용
+            if os.path.exists(font_path):
+                font_id = QFontDatabase.addApplicationFont(font_path)
+                font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
+                custom_font = QFont(font_family, 12)  # 폰트 크기 12로 설정
+            else:
+                print(f"폰트 파일을 찾을 수 없습니다: {font_path}")
+                custom_font = QFont("Arial", 12)  # 기본 폰트로 대체
+
+            # 메인 레이아웃
+            main_layout = QVBoxLayout()
+
+            # 정보 레이블 추가
+            info_label = QLabel(f"Material: {self.material_name}\nSpecimen ID: {self.specimen_id}")
+            info_label.setAlignment(QtCore.Qt.AlignLeft)
+            info_label.setFont(custom_font)  # 폰트 적용
+            info_label.setStyleSheet("""
+                padding: 8px;
+                border: 2px solid #B0BEC5;
+                border-radius: 5px;
+                background-color: #FFFFFF;
+            """)  # 테두리 추가 + 여백 추가
+            main_layout.addWidget(info_label)
+        
+            button_width = 300  # 버튼 너비 설정
+
+            # A 버튼
+            btn_a = QPushButton("A 기능", self)
+            btn_a.setMinimumSize(button_width, 50)
+            btn_a.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn_a.clicked.connect(lambda: self.send_xy_to_csharp("A"))
+            btn_a.setFont(custom_font)
+
+            # B 버튼
+            btn_b = QPushButton("B 기능", self)
+            btn_b.setMinimumSize(button_width, 50)
+            btn_b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn_b.clicked.connect(lambda: self.send_xy_to_csharp("B"))
+            btn_b.setFont(custom_font)
+            
+            # C 버튼
+            btn_c = QPushButton("C 기능", self)
+            btn_c.setMinimumSize(button_width, 50)
+            btn_c.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn_c.clicked.connect(lambda: self.send_xy_to_csharp("C"))
+            btn_c.setFont(custom_font)
+
+            main_layout.addWidget(btn_a)
+            main_layout.addWidget(btn_b)
+            main_layout.addWidget(btn_c)
+
+            self.setLayout(main_layout)
+            self.center_window()
+        
+        def closeEvent(self, event):
+            """창이 닫힐 때 리스트에서 제거"""
+            if self in open_popups:
+                open_popups.remove(self)
+            event.accept()
+        
+        def send_xy_to_csharp(self, button_type):
+            """버튼 클릭 시 C# 콜백 호출 (리스트로 x, y 전송)"""
+            if callback_function_material:
+                try:
+                    button_type_int = button_type_map.get(button_type, 0)  # 기본값 0 (예외 방지)
+
+                    # `specimen_id`가 None이거나 빈 문자열일 경우 기본값 설정
+                    specimen_id_safe = self.specimen_id if self.specimen_id else "UNKNOWN"
+
+                    # 선택된 점들의 전체 x, y 값 가져오기
+                    material_names = []
+                    specimen_ids = []
+                    x_values = []
+                    y_values = []
+
+                    for material, (sc, subset) in scatter_objects.items():
+                        all_offsets = sc.get_offsets()
+                        for mat, index in selected_points:
+                            if mat == material:
+                                material_names.append(str(subset.iloc[index]["material_name"]))  # material_name 추가
+                                specimen_ids.append(str(subset.iloc[index]["specimen_id"]))  # specimen_id 추가
+                                x_values.append(float(all_offsets[index, 0]))  # x 좌표 추가
+                                y_values.append(float(all_offsets[index, 1]))  # y 좌표 추가
+
+                    if not x_values or not y_values:
+                        print("[WARNING] 선택된 점이 없습니다. 데이터를 보낼 수 없습니다.")
+                        return
+
+                    # C# 콜백 함수 호출 (리스트 전송)
+                    callback_function_material(
+                        material_names,  # 선택된 material_name 리스트
+                        specimen_ids,  # 선택된 specimen_id 리스트
+                        x_values,  # 선택된 x 리스트
+                        y_values,  # 선택된 y 리스트
+                        int(button_type_int)  # C#에서 요구하는 정수 변환
+                    )
+                except Exception as e:
+                    print(f"[ERROR] C# 콜백 호출 중 오류 발생: {e}")
+            else:
+                print(f"[DEBUG] Callback not set. Selected Material = {material_names}, Specimen = {specimen_ids}, X = {x_values}, Y = {y_values}, Button = {button_type}")
+
+
+        def center_window(self):
+            screen_rect = QDesktopWidget().screenGeometry()
+            window_rect = self.frameGeometry()
+            center_x = (screen_rect.width() - window_rect.width()) // 2
+            center_y = (screen_rect.height() - window_rect.height()) // 2
+            self.move(center_x, center_y)
+   
+    def on_right_click(event):
+        global current_popup  
+        if event.button == 3 and event.inaxes: 
+            found = False  # 점을 클릭했는지 여부
+            
+            for material, (sc, subset) in scatter_objects.items():
+                cont, ind = sc.contains(event)
+                if cont:
+                    found = True  # 점을 클릭한 경우
+                    # scatter 객체에서 전체 x, y 좌표 가져오기
+                    all_offsets = sc.get_offsets()
+                    
+                    for index in ind["ind"]:
+                        # 전체 x, y 데이터 가져오기
+                        x_data = all_offsets[:, 0]  # 모든 x 좌표
+                        y_data = all_offsets[:, 1]  # 모든 y 좌표
+
+                        # 선택된 점의 x, y 값 가져오기
+                        x_val = x_data[index]
+                        y_val = y_data[index]
+
+                        material_name = subset.iloc[index]["material_name"]
+                        specimen_id = subset.iloc[index]["specimen_id"]
+
+                        if current_popup:
+                            current_popup.close()
+                            current_popup = None  
+
+                        current_popup = PopupWindow(material_name, specimen_id, x_val, y_val)
+                        current_popup.show()
+
+                        return  # 첫 번째 매칭된 데이터만 사용하고 종료
+                        
+            # 점이 없으면 선택 해제
+            if not found:
+                selected_points.clear()  # 모든 선택 해제
+                update_selected_points()
+                    
+    def zoom(event):
+        """마우스 휠로 줌 인/아웃"""
+        if event.inaxes:
+            scale_factor = 1.05  # 줌 인/아웃 배율
+            xlim = event.inaxes.get_xlim()
+            ylim = event.inaxes.get_ylim()
+
+            x_center = (xlim[0] + xlim[1]) / 2
+            y_center = (ylim[0] + ylim[1]) / 2
+
+            if event.step > 0:  # 줌 인
+                new_xlim = [x_center - (xlim[1] - xlim[0]) / scale_factor / 2,
+                            x_center + (xlim[1] - xlim[0]) / scale_factor / 2]
+                new_ylim = [y_center - (ylim[1] - ylim[0]) / scale_factor / 2,
+                            y_center + (ylim[1] - ylim[0]) / scale_factor / 2]
+            else:  # 줌 아웃
+                new_xlim = [x_center - (xlim[1] - xlim[0]) * scale_factor / 2,
+                            x_center + (xlim[1] - xlim[0]) * scale_factor / 2]
+                new_ylim = [y_center - (ylim[1] - ylim[0]) * scale_factor / 2,
+                            y_center + (ylim[1] - ylim[0]) * scale_factor / 2]
+
+            event.inaxes.set_xlim(new_xlim)
+            event.inaxes.set_ylim(new_ylim)
+            plt.draw()
+            
+    def on_click(event):
+        """한 번 클릭하면 가장 가까운 하나의 점을 선택, 다시 클릭하면 해제"""
+        if event.inaxes:  # 클릭이 축 내부에서 발생했는지 확인
+            for material, (sc, subset) in scatter_objects.items():
+                cont, ind = sc.contains(event)
+                if cont and len(ind["ind"]) > 0:
+                    # 클릭한 지점의 좌표
+                    click_x, click_y = event.xdata, event.ydata
+                    all_offsets = sc.get_offsets()  # 모든 점들의 x, y 좌표 가져오기
+
+                    # 클릭한 좌표와 점들의 거리 계산
+                    distances = [np.linalg.norm([all_offsets[i, 0] - click_x, all_offsets[i, 1] - click_y]) for i in ind["ind"]]
+
+                    # 가장 가까운 점의 인덱스 찾기
+                    closest_index = ind["ind"][np.argmin(distances)]
+                    point_id = (material, closest_index)  # 고유한 ID
+
+                    # 선택/해제 처리
+                    if point_id in selected_points:
+                        if event.button == 1:
+                            selected_points.remove(point_id)  # 선택 해제
+                    else:
+                        selected_points.add(point_id)  # 새로 선택
+
+                    update_selected_points()
+                    return  # 첫 번째 매칭된 점만 처리하고 종료
+
+
+    def update_selected_points():
+        """선택된 점들에 대해 테두리를 크게 변경 (더 눈에 띄도록)"""
+        highlight_color = 'black'  # 강조 색상
+        
+        for material, (sc, subset) in scatter_objects.items():
+            edge_colors = ['none'] * len(subset)  # 기본적으로 테두리 없음
+            line_widths = [0] * len(subset)  # 기본적으로 테두리 두께 없음
+            face_alphas = [0.8] * len(subset)  # 기본 투명도
+
+            for mat, index in selected_points:
+                if mat == material:
+                    edge_colors[index] = highlight_color  # 선택된 점은 강조 색상 적용
+                    line_widths[index] = 2  # 두께 증가
+                    face_alphas[index] = 1.0  # 선택된 점은 투명도 증가 (더 강조됨)
+
+            sc.set_edgecolor(edge_colors)  # 테두리 색상 업데이트
+            sc.set_linewidths(line_widths)  # 테두리 두께 업데이트
+
+            # 선택된 점을 더 강조하기 위해 투명도 조정
+            face_colors = sc.get_facecolors()
+            for i, alpha in enumerate(face_alphas):
+                if i < len(face_colors):  # 배열 길이 체크
+                    face_colors[i][-1] = alpha  # 마지막 값(alpha) 변경
+            sc.set_facecolors(face_colors)
+
+        plt.draw()  # 그래프 갱신
+
+
+
+    annot = ax.annotate(
+    "", xy=(0, 0), xytext=(10, 10),
+    textcoords="offset points", fontsize=10,
+    bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.8),
+    arrowprops=dict(arrowstyle="->", color='black')
+    )
+    annot.set_visible(False)  # 기본적으로 숨김
+
+    def update_tooltip(event):
+        """마우스 오버 시 SPECIMEN_ID 표시"""
+        if event.inaxes:
+            for material, (sc, subset) in scatter_objects.items():
+                cont, ind = sc.contains(event)
+                if cont:
+                    index = ind["ind"][0]
+                    specimen_id = subset.iloc[index]["specimen_id"]
+                    x, y = subset.iloc[index]["x"], subset.iloc[index]["y"]
+
+                    # 툴팁 위치 및 내용 업데이트
+                    annot.xy = (x, y)
+                    annot.set_text(f"SPECIMEN_ID: \n{specimen_id}")
+                    annot.set_visible(True)
+                    event.canvas.draw_idle()
+                    return
+        
+        # 마우스가 어떤 점에도 없으면 툴팁 숨기기
+        annot.set_visible(False)
+        event.canvas.draw_idle()
+        
+    # 이벤트 연결
+    fig.canvas.mpl_connect('scroll_event', zoom)
+    fig.canvas.mpl_connect("motion_notify_event", update_tooltip)
+    fig.canvas.mpl_connect("button_press_event", on_click)
+    fig.canvas.mpl_connect("button_press_event", on_right_click)
+    fig.canvas.mpl_connect("close_event", on_close)
+
+    fig_manager = plt.get_current_fig_manager()
+    if fig_manager.toolbar:
+        fig_manager.toolbar.setVisible(False)
+        fig_manager.toolbar = None
+
+    df_data = pd.DataFrame({
+    "specimen_id": data["specimen_id"],
+    "material_name": data["material_name"],
+    x_label : data["x"],
+    y_label : data["y"]
+    })
+
+    custom_toolbar = CustomToolbar(fig.canvas, fig_manager.window, df_data)
+    fig_manager.window.addToolBar(custom_toolbar)
+    fig_manager.window.setWindowFlags(fig_manager.window.windowFlags() | QtCore.Qt.WindowStaysOnTopHint)
+    
+    # Matplotlib을 블로킹하지 않도록 설정
+    plt.show(block=False)
